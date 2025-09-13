@@ -15,11 +15,7 @@ public class CardBehavior : MonoBehaviour
     private bool _isFlipped;
     private bool _isActive;
     private bool _isAnimating;
-    [SerializeField] private Sprite _hiddenSprite;
-
-    public int CardID { get; set; }
-    public bool IsFlipped { get { return _isFlipped; } }
-
+    public CardData Data { get; set; }
     private void Awake()
     {
         _cardImage = GetComponent<Image>();
@@ -28,10 +24,6 @@ public class CardBehavior : MonoBehaviour
         _isActive = true;
         // HideCard();
 
-    }
-    public void SetCardImage(Sprite hiddenSprite)
-    {
-        _hiddenSprite = hiddenSprite;
     }
 
     public void DeactivateCard()
@@ -44,7 +36,7 @@ public class CardBehavior : MonoBehaviour
     {
         AnimateFlip(() =>
         {
-            _cardImage.sprite = _hiddenSprite;
+            _cardImage.sprite = Data.CardSprite;
             _isFlipped = true;
         });
     }
@@ -97,7 +89,7 @@ public class CardBehavior : MonoBehaviour
     }
     private void OnCardClicked()
     {
-        if (_isAnimating || !_isActive) return;
+        if (_isAnimating || !_isActive || _isFlipped) return;
         FlipCard();
         CardClicked?.Invoke(this);
     }

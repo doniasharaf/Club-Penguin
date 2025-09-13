@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -10,11 +11,27 @@ public class GameController : MonoBehaviour
     [SerializeField] private GridController gridController; //view
     [SerializeField] private GameObject cardPrefab; //view
 
-    private List<CardBehavior> currentCards = new List<CardBehavior>();
+    [Header("Progress Saving")]
+    [SerializeField] private SaveLoadManager saveLoadManager;
 
+    private List<CardBehavior> _currentCards;
+    private GameEvaluator _gameEvaluator;
+    private int _rows;
+    private int _columns;
 
+    private void Awake()
+    {
+        if (saveLoadManager == null)
+            Debug.LogWarning(" SaveLoadManager is not assigned, saving/loading will be disabled.");
+        _gameEvaluator = new GameEvaluator();
+        _gameEvaluator.MatchChecked += OnMatchChecked;
+        _gameEvaluator.ScoreUpdated += OnScoreChanged;
+        _currentCards = new List<CardBehavior>();
+    }
     public void StartGame(int rows, int columns)
     {
+        _rows = rows;
+        _columns = columns;
         int totalCards = rows * columns;
         if (totalCards % 2 != 0)
         {
@@ -25,7 +42,6 @@ public class GameController : MonoBehaviour
         List<CardData> deck = InitializeDeck(totalCards);
         CreateCards(deck);
     }
-
 
     private List<CardData> InitializeDeck(int totalCards)
     {
@@ -60,9 +76,8 @@ public class GameController : MonoBehaviour
         {
             GameObject newCardObject = Instantiate(cardPrefab);
             CardBehavior newCard = newCardObject.GetComponent<CardBehavior>();
-            currentCards.Add(newCard);
-            newCard.CardID = cardData.CardId;
-            newCard.SetCardImage(cardData.CardSprite);
+            _currentCards.Add(newCard);
+            newCard.Data = cardData;
             newCard.CardClicked += OnCardClicked;
             gridController.AddChildTransform(newCard.transform);
         }
@@ -70,6 +85,107 @@ public class GameController : MonoBehaviour
 
     private void OnCardClicked(CardBehavior clickedCard)
     {
+        _gameEvaluator.Evaluate(clickedCard);
+    }
+
+    private void OnMatchChecked(bool isMatched, CardBehavior cardOne, CardBehavior cardTwo)
+    {
+        if (isMatched)
+        {
+            cardOne.DeactivateCard();
+            cardTwo.DeactivateCard();
+        }
+        else
+        {
+            StartCoroutine(HideMismatchedCards(cardOne, cardTwo));
+        }
+    }
+
+    private void OnScoreChanged(int newScore)
+    {
+        Debug.Log($"Score updated: {newScore}");
+    }
+
+    [ContextMenu("Save Game")]
+    public void SaveGame()
+    {
+        if (saveLoadManager == null)
+        {
+            Debug.LogWarning("SaveLoadManager is not assigned, cannot save game.");
+            return;
+        }
+        GameState gameState = new GameState();
+        gameState.Rows = _rows;
+        gameState.Columns = _columns;
+        gameState.Score = _gameEvaluator.Score;
+        gameState.CardStates = new List<CardState>();
+        foreach (CardBehavior card in _currentCards)
+        {
+            gameState.CardStates.Add(new CardState
+            {
+                Data = card.Data,
+                IsMatched = _gameEvaluator.IsCardMatched(card)
+            });
+        }
+        saveLoadManager.SaveData<GameState>("lastGame", gameState);
+    }
+
+    [ContextMenu("Load Game")]
+    public void LoadGame()
+    {
+        if (saveLoadManager == null)
+        {
+            Debug.LogWarning("SaveLoadManager is not assigned, cannot load game.");
+            return;
+        }
+        GameState previousGame = saveLoadManager.LoadData<GameState>("lastGame");
+        RestoreGame(previousGame);
+    }
+
+    private void RestoreGame(GameState gameState)
+    {
+        foreach (CardBehavior card in _currentCards)
+        {
+            Destroy(card.gameObject);
+        }
+        _currentCards.Clear();
+        _gameEvaluator.RestoreGame(gameState);
+        _rows = gameState.Rows;
+        _columns = gameState.Columns;
+        gridController.SetGridSize(_rows, _columns);
+        foreach (CardState cardState in gameState.CardStates)
+        {
+            GameObject newCardObject = Instantiate(cardPrefab);
+            CardBehavior newCard = newCardObject.GetComponent<CardBehavior>();
+            newCard.Data = cardState.Data;
+
+            if (cardState.IsMatched)
+            {
+                newCard.ShowCard();
+                newCard.DeactivateCard();
+                _gameEvaluator.MatchedCards.Add(newCard);
+            }
+            else
+            {
+                newCard.CardClicked += OnCardClicked;
+                newCard.HideCard();
+            }
+
+            _currentCards.Add(newCard);
+            gridController.AddChildTransform(newCard.transform);
+        }
+    }
+
+    private void EndGame()
+    {
+
+    }
+
+    private IEnumerator HideMismatchedCards(CardBehavior cardOne, CardBehavior cardTwo)
+    {
+        yield return new WaitForSeconds(1f);
+        cardOne.HideCard();
+        cardTwo.HideCard();
 
     }
 
@@ -87,36 +203,5 @@ public class GameController : MonoBehaviour
 #endif
 }
 
-public static class ListShuffle
-{
-    //Fisher-Yates shuffle algorithm
-    public static void Shuffle<T>(List<T> list)
-    {
-        int n = list.Count;
-        while (n > 1)
-        {
-            n--;
-            int k = Random.Range(0, n + 1);
-            T value = list[k];
-            list[k] = list[n];
-            list[n] = value;
-        }
-    }
 
-    public static void Shuffle<T>(T[] array)
-    {
-        // Use System.Random for general-purpose shuffling, or UnityEngine.Random for game-specific randomness.
-        System.Random random = new System.Random();
-
-        int n = array.Length;
-        while (n > 1)
-        {
-            n--;
-            int k = random.Next(n + 1); // Generate a random index from 0 to n (inclusive)
-            T value = array[k];
-            array[k] = array[n];
-            array[n] = value;
-        }
-    }
-}
 
