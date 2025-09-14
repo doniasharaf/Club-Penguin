@@ -1,22 +1,30 @@
 using System.Collections.Generic;
+using UnityEngine;
 using UnityEngine.Events;
 
-[System.Serializable]
 public class GameEvaluator
 {
     public UnityAction<bool, CardBehavior, CardBehavior> MatchChecked;
     public UnityAction<int> ScoreUpdated;
+    public UnityAction<int> HighScoreUpdated;
+    public UnityAction<int> StreakUpdated;
+
     private List<CardBehavior> _clickedCards;
+    private int _highScore;
+    public int Score { get; private set; }
+    public int Streak { get; private set; }
+
     public HashSet<CardBehavior> MatchedCards { get; set; }
 
     public GameEvaluator()
     {
         _clickedCards = new List<CardBehavior>();
         MatchedCards = new HashSet<CardBehavior>();
+        Streak = 0;
         Score = 0;
         ScoreUpdated?.Invoke(Score);
+        _highScore = PlayerPrefs.GetInt("highScore", 0);
     }
-    public int Score { get; private set; }
 
     public void Evaluate(CardBehavior clickedCard)
     {
@@ -36,14 +44,25 @@ public class GameEvaluator
         bool isMatched;
         if (firstCard.Data.CardId == secondCard.Data.CardId)
         {
-            Score++;
+            Streak++;
+            Score += Streak;
             ScoreUpdated?.Invoke(Score);
+            if (Streak > 1)
+                StreakUpdated?.Invoke(Streak);
+            if (Score > _highScore)
+            {
+                _highScore = Score;
+                PlayerPrefs.SetInt("highScore", _highScore);
+                HighScoreUpdated?.Invoke(_highScore);
+            }
             MatchedCards.Add(firstCard);
             MatchedCards.Add(secondCard);
             isMatched = true;
         }
         else
         {
+            Streak = 0;
+            StreakUpdated?.Invoke(Streak);
             isMatched = false;
         }
         MatchChecked?.Invoke(isMatched, firstCard, secondCard);
@@ -58,6 +77,7 @@ public class GameEvaluator
     {
         Score = 0;
         ScoreUpdated?.Invoke(Score);
+        Streak = 0;
         _clickedCards.Clear();
         MatchedCards.Clear();
     }
@@ -67,6 +87,7 @@ public class GameEvaluator
         _clickedCards.Clear();
         MatchedCards.Clear();
         Score = gameState.Score;
+        Streak = gameState.Streak;
         ScoreUpdated?.Invoke(Score);
     }
 

@@ -1,15 +1,19 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Events;
 
 public class GameController : MonoBehaviour
 {
+    public UnityAction GameEnded;
+
     [Header("Data Model")]
     [SerializeField] private CardsData cardsData;
 
     [Header("View")]
     [SerializeField] private GridController gridController; //view
     [SerializeField] private GameObject cardPrefab; //view
+    [SerializeField] private GameStatsUI statsUI; //view
 
     [Header("Progress Saving")]
     [SerializeField] private SaveLoadManager saveLoadManager;
@@ -26,8 +30,13 @@ public class GameController : MonoBehaviour
         _gameEvaluator = new GameEvaluator();
         _gameEvaluator.MatchChecked += OnMatchChecked;
         _gameEvaluator.ScoreUpdated += OnScoreChanged;
+        _gameEvaluator.HighScoreUpdated += OnHighScoreChanged;
+        _gameEvaluator.StreakUpdated += OnStreakChanged;
         _currentCards = new List<CardBehavior>();
     }
+
+
+    #region Public 
     public void StartGame(int rows, int columns)
     {
         _rows = rows;
@@ -39,10 +48,54 @@ public class GameController : MonoBehaviour
             return;
         }
         gridController.SetGridSize(rows, columns);
+        statsUI.ResetStats();
         List<CardData> deck = InitializeDeck(totalCards);
         CreateCards(deck);
     }
 
+
+    [ContextMenu("Save Game")]
+    public void SaveGame()
+    {
+        if (saveLoadManager == null)
+        {
+            Debug.LogWarning("SaveLoadManager is not assigned, cannot save game.");
+            return;
+        }
+        GameState gameState = new GameState();
+        gameState.Rows = _rows;
+        gameState.Columns = _columns;
+        gameState.Score = _gameEvaluator.Score;
+        gameState.Streak = _gameEvaluator.Streak;
+        gameState.CardStates = new List<CardState>();
+        foreach (CardBehavior card in _currentCards)
+        {
+            gameState.CardStates.Add(new CardState
+            {
+                Data = card.Data,
+                IsMatched = _gameEvaluator.IsCardMatched(card)
+            });
+        }
+        saveLoadManager.SaveData<GameState>("lastGame", gameState);
+        PlayerPrefs.SetInt("previousGameExists", 1);
+    }
+
+    [ContextMenu("Load Game")]
+    public void LoadGame()
+    {
+        if (saveLoadManager == null)
+        {
+            Debug.LogWarning("SaveLoadManager is not assigned, cannot load game.");
+            return;
+        }
+        GameState previousGame = saveLoadManager.LoadData<GameState>("lastGame");
+        if (previousGame != null)
+            RestoreGame(previousGame);
+    }
+
+    #endregion
+
+    #region Private
     private List<CardData> InitializeDeck(int totalCards)
     {
         //Shuffle available card definitions
@@ -82,66 +135,6 @@ public class GameController : MonoBehaviour
             gridController.AddChildTransform(newCard.transform);
         }
     }
-
-    private void OnCardClicked(CardBehavior clickedCard)
-    {
-        _gameEvaluator.Evaluate(clickedCard);
-    }
-
-    private void OnMatchChecked(bool isMatched, CardBehavior cardOne, CardBehavior cardTwo)
-    {
-        if (isMatched)
-        {
-            cardOne.DeactivateCard();
-            cardTwo.DeactivateCard();
-        }
-        else
-        {
-            StartCoroutine(HideMismatchedCards(cardOne, cardTwo));
-        }
-    }
-
-    private void OnScoreChanged(int newScore)
-    {
-        Debug.Log($"Score updated: {newScore}");
-    }
-
-    [ContextMenu("Save Game")]
-    public void SaveGame()
-    {
-        if (saveLoadManager == null)
-        {
-            Debug.LogWarning("SaveLoadManager is not assigned, cannot save game.");
-            return;
-        }
-        GameState gameState = new GameState();
-        gameState.Rows = _rows;
-        gameState.Columns = _columns;
-        gameState.Score = _gameEvaluator.Score;
-        gameState.CardStates = new List<CardState>();
-        foreach (CardBehavior card in _currentCards)
-        {
-            gameState.CardStates.Add(new CardState
-            {
-                Data = card.Data,
-                IsMatched = _gameEvaluator.IsCardMatched(card)
-            });
-        }
-        saveLoadManager.SaveData<GameState>("lastGame", gameState);
-    }
-
-    [ContextMenu("Load Game")]
-    public void LoadGame()
-    {
-        if (saveLoadManager == null)
-        {
-            Debug.LogWarning("SaveLoadManager is not assigned, cannot load game.");
-            return;
-        }
-        GameState previousGame = saveLoadManager.LoadData<GameState>("lastGame");
-        RestoreGame(previousGame);
-    }
-
     private void RestoreGame(GameState gameState)
     {
         foreach (CardBehavior card in _currentCards)
@@ -152,6 +145,7 @@ public class GameController : MonoBehaviour
         _gameEvaluator.RestoreGame(gameState);
         _rows = gameState.Rows;
         _columns = gameState.Columns;
+        statsUI.ResetStats();
         gridController.SetGridSize(_rows, _columns);
         foreach (CardState cardState in gameState.CardStates)
         {
@@ -178,7 +172,8 @@ public class GameController : MonoBehaviour
 
     private void EndGame()
     {
-
+        Debug.Log($"Game Over! Final Score: {_gameEvaluator.Score}, High Score: {PlayerPrefs.GetInt("highScore")}");
+        GameEnded?.Invoke();
     }
 
     private IEnumerator HideMismatchedCards(CardBehavior cardOne, CardBehavior cardTwo)
@@ -188,6 +183,52 @@ public class GameController : MonoBehaviour
         cardTwo.HideCard();
 
     }
+    #endregion
+
+    #region Callbacks
+
+    private void OnCardClicked(CardBehavior clickedCard)
+    {
+        _gameEvaluator.Evaluate(clickedCard);
+    }
+
+    private void OnMatchChecked(bool isMatched, CardBehavior cardOne, CardBehavior cardTwo)
+    {
+        if (isMatched)
+        {
+            cardOne.DeactivateCard();
+            cardTwo.DeactivateCard();
+
+            if (_gameEvaluator.MatchedCards.Count >= _currentCards.Count)
+            {
+                EndGame();
+            }
+        }
+        else
+        {
+            StartCoroutine(HideMismatchedCards(cardOne, cardTwo));
+        }
+    }
+
+    private void OnScoreChanged(int newScore)
+    {
+        Debug.Log($"Score updated: {newScore}");
+        statsUI.UpdateScore(newScore);
+    }
+
+    private void OnHighScoreChanged(int newHighScore)
+    {
+        Debug.Log($"High Score updated: {newHighScore}");
+        statsUI.UpdateHighScore(newHighScore);
+    }
+
+    private void OnStreakChanged(int newStreak)
+    {
+
+        Debug.Log($"Streak updated: {newStreak}");
+        statsUI.UpdateStreak(newStreak);
+    }
+    #endregion
 
 #if UNITY_EDITOR
     [ContextMenu("Start 4x4 Game")]
