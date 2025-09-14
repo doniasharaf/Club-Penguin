@@ -6,6 +6,8 @@ using UnityEngine.Events;
 public class GameController : MonoBehaviour
 {
     public UnityAction GameEnded;
+    public UnityAction GameStarted;
+
 
     [Header("Data Model")]
     [SerializeField] private CardsData cardsData;
@@ -18,10 +20,15 @@ public class GameController : MonoBehaviour
     [Header("Progress Saving")]
     [SerializeField] private SaveLoadManager saveLoadManager;
 
+    [Header("Sound Manager")]
+    [SerializeField] private SoundManager soundManager;
+
+
     private List<CardBehavior> _currentCards;
     private GameEvaluator _gameEvaluator;
     private int _rows;
     private int _columns;
+    private bool _isGameActive;
 
     private void Awake()
     {
@@ -34,8 +41,21 @@ public class GameController : MonoBehaviour
         _gameEvaluator.StreakUpdated += OnStreakChanged;
         _currentCards = new List<CardBehavior>();
     }
+    private void OnApplicationPause(bool pauseStatus)
+    {
+        if (pauseStatus && _isGameActive)
+        {
+            SaveGame();
+        }
+    }
 
-
+    private void OnApplicationQuit()
+    {
+        if (_isGameActive)
+        {
+            SaveGame();
+        }
+    }
     #region Public 
     public void StartGame(int rows, int columns)
     {
@@ -47,10 +67,14 @@ public class GameController : MonoBehaviour
             Debug.LogError("Total number of cards must be even.");
             return;
         }
+        _currentCards.Clear();
+        _gameEvaluator.Reset();
         gridController.SetGridSize(rows, columns);
         statsUI.ResetStats();
         List<CardData> deck = InitializeDeck(totalCards);
         CreateCards(deck);
+        _isGameActive = true;
+        GameStarted?.Invoke();
     }
 
 
@@ -137,15 +161,10 @@ public class GameController : MonoBehaviour
     }
     private void RestoreGame(GameState gameState)
     {
-        foreach (CardBehavior card in _currentCards)
-        {
-            Destroy(card.gameObject);
-        }
         _currentCards.Clear();
         _gameEvaluator.RestoreGame(gameState);
         _rows = gameState.Rows;
         _columns = gameState.Columns;
-        statsUI.ResetStats();
         gridController.SetGridSize(_rows, _columns);
         foreach (CardState cardState in gameState.CardStates)
         {
@@ -168,11 +187,16 @@ public class GameController : MonoBehaviour
             _currentCards.Add(newCard);
             gridController.AddChildTransform(newCard.transform);
         }
+        _isGameActive = true;
+        GameStarted?.Invoke();
     }
 
     private void EndGame()
     {
         Debug.Log($"Game Over! Final Score: {_gameEvaluator.Score}, High Score: {PlayerPrefs.GetInt("highScore")}");
+        soundManager.PlayGameOverSFX();
+        PlayerPrefs.SetInt("previousGameExists", 0);
+        _isGameActive = false;
         GameEnded?.Invoke();
     }
 
@@ -189,6 +213,7 @@ public class GameController : MonoBehaviour
 
     private void OnCardClicked(CardBehavior clickedCard)
     {
+        soundManager.PlayFlipSFX();
         _gameEvaluator.Evaluate(clickedCard);
     }
 
@@ -196,6 +221,7 @@ public class GameController : MonoBehaviour
     {
         if (isMatched)
         {
+            soundManager.PlayMatchSFX();
             cardOne.DeactivateCard();
             cardTwo.DeactivateCard();
 
@@ -206,6 +232,7 @@ public class GameController : MonoBehaviour
         }
         else
         {
+            soundManager.PlayMismatchSFX();
             StartCoroutine(HideMismatchedCards(cardOne, cardTwo));
         }
     }
