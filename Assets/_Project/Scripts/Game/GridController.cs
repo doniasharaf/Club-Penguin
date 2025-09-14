@@ -4,18 +4,15 @@ using UnityEngine.UI;
 [RequireComponent(typeof(GridLayoutGroup))]
 public class GridController : MonoBehaviour
 {
+    [SerializeField] private GridLayoutGroup _gridLayoutGroup;
     [SerializeField] private int verticalMargin = 300;
     [SerializeField] private int horizontalMargin = 150;
-    private GridLayoutGroup _gridLayoutGroup;
     private float _availableHeight;
     private float _availableWidth;
-    private void Awake()
-    {
-        _gridLayoutGroup = GetComponent<GridLayoutGroup>();
-    }
 
     public void SetGridSize(int rows, int columns)
     {
+        ClearGrid();
         GetMaxSize();
 
         _gridLayoutGroup.constraintCount = columns;
@@ -37,7 +34,13 @@ public class GridController : MonoBehaviour
         child.localScale = Vector3.one;
     }
 
-
+    private void ClearGrid()
+    {
+        foreach (Transform child in _gridLayoutGroup.transform)
+        {
+            Destroy(child.gameObject);
+        }
+    }
     private void GetMaxSize()
     {
         RectTransform parentRt = _gridLayoutGroup.transform.parent.GetComponent<RectTransform>();
@@ -45,6 +48,8 @@ public class GridController : MonoBehaviour
         _availableWidth = parentRt.rect.width - horizontalMargin * 2;
 
     }
+
+
 
 
 #if UNITY_EDITOR
